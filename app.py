@@ -228,3 +228,70 @@ class Image:
             return 400, {"msg":"没有符合条件的！"}
         images = q.all()
         return 200, {"images":[q[0].url, q[1].url]}
+# ============================================================================
+#                                 Server
+# ============================================================================
+# ----------------------------------
+# ------ Utility Function ----------
+# ----------------------------------
+def GetResp(t):
+    resp = flask.jsonify(t[1])
+    resp.status_code = t[0]
+    return resp
+# ----------------------------------
+#              API 
+# ----------------------------------
+
+@app.route('/login', methods=['POST'])
+@require("username", "password", "remember")
+def Login():
+    data = request.get_json()
+    u = User(username = data['username'], password = data['password'])
+    return GetResp(u.Login(data["remember"]))
+
+@app.route('/logoff', methods=['POST'])
+@require("username", "token")
+def Logoff():
+    data = request.get_json()
+    u = User(username = data['username'], token = data['token'])
+    return GetResp(u.Logoff())
+
+@app.route('/register', methods=['POST'])
+@require("username", "password", "email")
+def Register():
+    data = request.get_json()
+    u = User(data['username'])
+    return GetResp(u.Register(data))
+
+@app.route('/uservalid', methods=['POST'])
+@require("username")
+def ValidUser():
+    data = request.get_json()
+    if "token" in data:
+        token = data["token"]
+    else:
+        token = None
+    u = User(username = data['username'], token = token)
+    if u.valid:
+        resp = flask.jsonify({"valid":True})
+        resp.status_code = 200
+    else:
+        resp = flask.jsonify({"valid":False})
+        resp.status_code = 200
+    return resp
+@app.route('/signature', methods=['POST'])
+def Signature():
+    if CLOUDINARY_API_SECRET != None:
+        data = request.get_json()
+        for pickOutKey in ['file', 'type', 'resource_type', 'api_key']:
+            if pickOutKey in data:
+                data.pop(pickOutKey)
+        s = '&'.join([str(t[0])+'='+str(t[1]) for t in sorted([(k, v) for k,v in data.items()])])
+        s += CLOUDINARY_API_SECRET
+        resp = flask.jsonify({"signature": hashlib.sha1(s).hexdigest()})
+        resp.status_code = 200
+    else:
+        resp = flask.jsonify({"msg": "No valid cloudinary api secret exist"})
+        resp.status_code = 403
+
+    return resp
