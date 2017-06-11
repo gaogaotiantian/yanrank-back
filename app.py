@@ -36,15 +36,8 @@ cloudinary.config(
 )
 app = Flask(__name__)
 app.config['SQLALCHEMY_DATABASE_URI'] = DATABASE_URL
-app.config['MAIL_SERVER'] = 'smtp.gmail.com'
-app.config['MAIL_PORT'] = 465
-app.config['MAIL_USERNAME'] = os.environ.get('EMAIL_USERNAME')
-app.config['MAIL_PASSWORD'] = os.environ.get('EMAIL_PASSWORD')
-app.config['MAIL_USE_TLS'] = False
-app.config['MAIL_USE_SSL'] = True
 CORS(app)
 db = SQLAlchemy(app)
-mail = Mail(app)
 
 # ============================================================================
 #                                 Decoreator
