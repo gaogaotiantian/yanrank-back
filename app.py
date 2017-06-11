@@ -286,6 +286,7 @@ class Image:
             ret = {}
             ret['url'] = self['url']
             ret['tags'] = self['tags'].split('\n')
+            ret['gender'] = self['gender']
             if self['rank_time'] < 10:
                 ret['rank'] = u'评估中'
             else:
