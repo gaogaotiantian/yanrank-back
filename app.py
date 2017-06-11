@@ -7,6 +7,7 @@ import hashlib
 import json
 import functools
 import urllib
+import random
 
 # SQL stuff
 import psycopg2
@@ -19,12 +20,20 @@ from flask_cors import CORS
 from flask_sqlalchemy import SQLAlchemy
 from flask_mail import Mail, Message
 
+# Cloudinary
+import cloudinary.api
+
 # Initialization
 if os.environ.get('DATABASE_URL') != None:
     DATABASE_URL = os.environ.get('DATABASE_URL')
 else:
     DATABASE_URL = "postgresql+psycopg2://gaotian:password@localhost:5432/yanrank"
 CLOUDINARY_API_SECRET = os.environ.get('CLOUDINARY_API_SECRET')
+cloudinary.config( 
+    cloud_name = "yanrank", 
+    api_key = "585812587869167",
+    api_secret = CLOUDINARY_API_SECRET
+)
 app = Flask(__name__)
 app.config['SQLALCHEMY_DATABASE_URI'] = DATABASE_URL
 app.config['MAIL_SERVER'] = 'smtp.gmail.com'
@@ -89,6 +98,9 @@ class UserDb(db.Model):
     token_exp     = db.Column(db.Integer, default=0)
     email         = db.Column(db.String(50), default="")
     points        = db.Column(db.Integer, default=1000)
+    total_choice  = db.Column(db.Integer, default=0)
+    good_judge    = db.Column(db.Integer, default=0)
+    bad_judge     = db.Column(db.Integer, default=0)
     credit        = db.Column(db.Integer, default=0)
     money         = db.Column(db.Integer, default=0)
 
@@ -97,9 +109,11 @@ class ImageDb(db.Model):
     id            = db.Column(db.Integer, primary_key=True)
     url           = db.Column(db.Text, default="")
     gender        = db.Column(db.String(2), default="f")
-    tags          = db.Column(db.String(20), default="")
+    tags          = db.Column(db.Text, default="")
     rank          = db.Column(db.Integer, default=1000)
+    rank_time     = db.Column(db.Integer, default=0)
     owner         = db.Column(db.String(50), default="")
+
 
 db.create_all()
 
@@ -194,10 +208,32 @@ class User:
             else:
                 return 400, {"msg":"Wrong user/password combination!"}
 
+    def GetInfo(self, data):
+        if self.valid:
+            ret = {}
+            ret['total'] = self['total_choice']
+            ret['point'] = self['good_judge']*100.0 / max(1, (self['bad_judge'] + self['good_judge']))
+            ret['images'] = []
+            q = ImageDb.query.filter_by(owner = self['username'])
+            images = q.all()
+            for im in images:
+                i = Image(im.id)
+                ret['images'].append(i.GetInfo())
+            return 200, ret
+        return 400, {"msg": "user not valid"}
+
+
 class Image:
-    def __init__(self, id = None):
+    def __init__(self, id = None, url = None):
+        self.valid = False
         if id != None:
             self.data = ImageDb.query.get(id)
+            if self.data != None:
+                self.valid = True
+        elif url != None:
+            self.data = ImageDb.query.filter_by(url = url).first()
+            if self.data != None:
+                self.valid = True
         else:
             self.data = None
 
@@ -211,23 +247,123 @@ class Image:
             self.data.__setattr__(key, val)
 
     def New(self, data):
-        newImage = ImageDb(
-                url = data['url'],
-                owner = data['owner'],
-                gender = data['gender'],
-                tags = data['tags'],
-                rank = 1000
-        )
-        db.session.add(newImage)
+        for url in data['urlList']:
+            newImage = ImageDb(
+                    url = url,
+                    owner = data['owner'],
+                    gender = data['gender'],
+                    tags = '\n'.join(data['tags']),
+                    rank = 1000
+            )
+            db.session.add(newImage)
         db.session.commit()
         return 200, {"msg":"Success"}
 
+    def DeleteImage(self):
+        if self.valid:
+            public_id = self['url'].split('/')[-1].split('.')[0]
+            ret = cloudinary.api.delete_resources(public_ids = [public_id])
+            db.session.delete(self.data)
+            db.session.commit()
+            return 200, {"msg": "Success"}
+        return 400, {"msg": "Image invalid"}
+
     def GetImages(self, data):
-        q = ImageDb.query.filter_by(gender = data['gender']).order_by(func.random()).limit(2)
-        if q.count() != 2:
-            return 400, {"msg":"没有符合条件的！"}
+        if data['gender'] == '':
+            data['gender'] = random.choice(['m', 'f'])
+        q = ImageDb.query.filter(ImageDb.gender == data['gender'], ImageDb.tags.like('%'+data['tag']+'%')).order_by(db.func.random()).limit(data['number'])
+        if q.count() != data['number']:
+            return 400, {"msg":"此类别没有足够多的照片！"}
         images = q.all()
-        return 200, {"images":[q[0].url, q[1].url]}
+        urlList = []
+        for im in images:
+            urlList.append(im.url)
+        return 200, {"images":urlList}
+
+    def GetRanking(self, data):
+        q = ImageDb.query.filter(ImageDb.gender == data['gender'], ImageDb.tags.like('%'+data['tag']+'%')).order_by(ImageDb.rank.desc()).limit(data['number'])
+        images = q.all()
+        urlList = []
+        for im in images:
+            urlList.append(im.url)
+        return 200, {"ranking":urlList}
+
+    def GetInfo(self):
+        if self.valid:
+            ret = {}
+            ret['url'] = self['url']
+            ret['tags'] = self['tags'].split('\n')
+            if self['rank_time'] < 10:
+                ret['rank'] = u'评估中'
+            else:
+                ret['rank'] = self['rank']
+            return ret
+        return None
+
+    def PickImage(self, data):
+        qWin = ImageDb.query.filter_by(url = data['win'])
+        qLose = ImageDb.query.filter_by(url = data['lose'])
+        winIm = qWin.first()
+        loseIm = qLose.first()
+        if winIm != None and loseIm != None:
+            if winIm.rank_time < 10:
+                kwin = 40
+            else:
+                kwin = 10
+            if loseIm.rank_time < 10:
+                klose = 40
+            else:
+                klose = 10
+            winScore = winIm.rank
+            loseScore = loseIm.rank
+            ewin = 1.0/(1+10.0**((loseScore - winScore)/400.0))
+            elose = 1.0/(1+10.0**((winScore - loseScore)/400.0))
+            winIm.rank = winIm.rank + kwin*(1.0 - ewin)
+            loseIm.rank = loseIm.rank + klose*(0.0 - elose)
+            winIm.rank_time = winIm.rank_time + 1
+            loseIm.rank_time = loseIm.rank_time + 1
+            db.session.commit()
+            goodJudge = 0
+            badJudge = 0
+            if winIm.rank_time < 10 or loseIm.rank_time < 10:
+                msg = "还在评估中，我也不知道你选的对不对"
+                judge = "normal"
+            elif winIm.rank - loseIm.rank > 100:
+                msg = "这么明显，是个人都看的出来"
+                judge = "correct"
+                goodJudge = 1
+            elif winIm.rank - loseIm.rank > 50:
+                msg = "恩，审美还算过关，不错哦！"
+                judge = "correct"
+                goodJudge = 3
+            elif winIm.rank - loseIm.rank > 20:
+                msg = "你选的人也就是稍胜一筹，勉强算你对吧"
+                judge = "correct"
+                goodJudge = 2
+            elif winIm.rank - loseIm.rank > -20:
+                msg = "这俩人差不多，选谁都算不上错。"
+                judge = "normal"
+            elif winIm.rank - loseIm.rank > -50:
+                msg = "你选的人稍逊一筹，有点可惜，不要太难过"
+                judge = "wrong"
+                badJudge = 1
+            elif winIm.rank - loseIm.rank > -100:
+                msg = "你这审美有点着急啊，赶紧回家练练吧"
+                judge = "wrong"
+                badJudge = 2
+            else:
+                msg = "你是不是眼神有问题？回去配副眼镜好不好？"
+                judge = "wrong"
+                badJudge = 3
+            if data['user'] != '':
+                u = User(data['user'])
+                if u.valid:
+                    u['good_judge'] += goodJudge
+                    u['bad_judge'] += badJudge
+                    u['total_choice'] += 1
+                    db.session.commit()
+            return 200, {"msg":msg, "judge":judge}
+        return 400, {"msg":"数据库有问题"}
 # ============================================================================
 #                                 Server
 # ============================================================================
@@ -279,6 +415,53 @@ def ValidUser():
         resp = flask.jsonify({"valid":False})
         resp.status_code = 200
     return resp
+
+@app.route('/userinfo', methods=['POST'])
+@require("username", "token")
+def UserInfo():
+    data = request.get_json()
+    u = User(username = data['username'], token = data['token'])
+    return GetResp(u.GetInfo(data))
+
+@app.route('/addimage', methods=['POST'])
+@require("urlList", "owner", "gender", "tags")
+def AddImage():
+    data = request.get_json()
+    im = Image()
+    return GetResp(im.New(data))
+
+@app.route('/getimages', methods=['POST'])
+@require('gender', 'tag', 'number')
+def GetImages():
+    data = request.get_json()
+    im = Image()
+    return GetResp(im.GetImages(data))
+
+@app.route('/deleteimage', methods=['POST'])
+@require('username', 'token', 'url')
+def DeleteImage():
+    data = request.get_json()
+    u = User(username = data['username'], token = data['token'])
+    if u.valid:
+        im = Image(url = data['url'])
+        return GetResp(im.DeleteImage())
+    else:
+        return GetResp((401, {"msg": "User not valid"}))
+
+@app.route('/getranking', methods=['POST'])
+@require('gender', 'tag', 'number')
+def GetRanking():
+    data = request.get_json()
+    im = Image()
+    return GetResp(im.GetRanking(data))
+
+@app.route('/pickimage', methods=['POST'])
+@require('user', 'win', 'lose')
+def PickImage():
+    data = request.get_json()
+    im = Image()
+    return GetResp(im.PickImage(data))
+
 @app.route('/signature', methods=['POST'])
 def Signature():
     if CLOUDINARY_API_SECRET != None:
