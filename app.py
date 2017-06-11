@@ -356,7 +356,7 @@ class Image:
                     u['bad_judge'] += badJudge
                     u['total_choice'] += 1
                     db.session.commit()
-            return 200, {"msg":msg, "judge":judge}
+            return 200, {"msg":msg, "judge":judge, "good_judge":goodJudge, "bad_judge": badJudge}
         return 400, {"msg":"数据库有问题"}
 # ============================================================================
 #                                 Server
