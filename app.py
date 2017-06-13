@@ -112,6 +112,19 @@ class ImageDb(db.Model):
     rank_time     = db.Column(db.Integer, default=0)
     owner         = db.Column(db.String(50), default="")
 
+class TagDb(db.Model):
+    __tablename__ = 'tags'
+    id            = db.Column(db.Integer, primary_key = True)
+    key           = db.Column(db.String(32))
+    name          = db.Column(db.String(32), default="")
+    owner         = db.Column(db.String(50))
+
+class ReportDb(db.Model):
+    __tablename__ = 'reports'
+    id            = db.Column(db.Integer, primary_key = True)
+    type          = db.Column(db.String(32))
+    url           = db.Column(db.Text, default="")
+    note          = db.Column(db.Text, default="")
 
 db.create_all()
 
@@ -212,17 +225,23 @@ class User:
             ret['total'] = self['total_choice']
             ret['point'] = self['good_judge']*100.0 / max(1, (self['bad_judge'] + self['good_judge']))
             ret['images'] = []
+            ret['tags'] = []
             q = ImageDb.query.filter_by(owner = self['username'])
             images = q.all()
             for im in images:
-                i = Image(im.id)
+                i = Image(data = im)
                 ret['images'].append(i.GetInfo())
+            q = TagDb.query.filter_by(owner = self['username'])
+            tags = q.all()
+            for tag in tags:
+                t = Tag(data = tag)
+                ret['tags'].append(t.GetInfo())
             return 200, ret
         return 400, {"msg": "user not valid"}
 
 
 class Image:
-    def __init__(self, id = None, url = None):
+    def __init__(self, id = None, url = None, data = None):
         self.valid = False
         if id != None:
             self.data = ImageDb.query.get(id)
@@ -232,13 +251,19 @@ class Image:
             self.data = ImageDb.query.filter_by(url = url).first()
             if self.data != None:
                 self.valid = True
+        elif data != None:
+            self.data = data
+            self.valid = True
         else:
             self.data = None
 
     def __getitem__(self, key):
         if self.data == None:
             return None
-        return self.data.__getattribute__(key)
+        if key == 'tags':
+            return self.data.tags.split('\n')
+        else:
+            return self.data.__getattribute__(key)
 
     def __setitem__(self, key, val):
         if self.data != None:
@@ -259,6 +284,12 @@ class Image:
             db.session.add(newImage)
         db.session.commit()
         return 200, {"msg":"Success"}
+
+    def RemoveTag(self, tag):
+        tempList = self['tags'][:]
+        tempList.remove(tag)
+        self['tags'] = tempList
+        db.session.commit()
 
     def DeleteImage(self, username = "", urlList=None):
         if self.valid:
@@ -312,7 +343,7 @@ class Image:
         if self.valid:
             ret = {}
             ret['url'] = self['url']
-            ret['tags'] = self['tags'].split('\n')
+            ret['tags'] = self['tags']
             ret['gender'] = self['gender']
             if self['rank_time'] < 10:
                 ret['rank'] = u'评估中'
@@ -385,6 +416,68 @@ class Image:
                     db.session.commit()
             return 200, {"msg":msg, "judge":judge, "good_judge":goodJudge, "bad_judge": badJudge}
         return 400, {"msg":"数据库有问题"}
+
+class Tag:
+    def __init__(self, key = None, data = None):
+        self.valid = False
+        if key != None:
+            self.data = TagDb.query.filter_by(key = key).first()
+            if self.data != None:
+                self.valid = True
+        elif data != None:
+            self.data = data
+            self.valid = True
+        else:
+            self.data = None
+
+    def __getitem__(self, key):
+        if self.data == None:
+            return None
+        return self.data.__getattribute__(key)
+
+    def __setitem__(self, key, val):
+        if self.data != None:
+            self.data.__setattr__(key, val)
+
+    def GetInfo(self):
+        ret = {}
+        if self.valid:
+            ret['name'] = self['name']
+            ret['key'] = self['key']
+        return ret
+
+    def CreateTag(self, data):
+        key = base64.urlsafe_b64encode(os.urandom(12))
+        while TagDb.query.filter_by(key = key).first() != None:
+            key = base64.urlsafe_b64encode(os.urandom(12))
+
+        newTag = TagDb(
+                key = key,
+                name = data['name'],
+                owner = data['username']
+        )
+        db.session.add(newTag)
+        db.session.commit()
+        return 200, {"key": key}
+
+    def DeleteTag(self, data):
+        if self.valid == True:
+            if self['owner'] == data['username']:
+                images = ImageDb.query.filter(ImageDb.tags.like('%'+self['key']+'%')).all()
+                for imdata in images:
+                    im = Image(data = imdata)
+                    im.RemoveTag(self['key'])
+                db.session.delete(self.data)
+                db.session.commit()
+                return 200, {"msg": "Success"}
+            return 401, {"msg": "User is not the owner!"}
+        return 400, {"msg": "There is not such tag!"}
+
+    def CheckTag(self):
+        if self.valid == True:
+            return 200, {"name": self['name']}
+        return 400, {"msg": "No such tag."}
+
 # ============================================================================
 #                                 Server
 # ============================================================================
@@ -505,6 +598,41 @@ def PickImage():
     data = request.get_json()
     im = Image()
     return GetResp(im.PickImage(data))
+
+@app.route('/createtag', methods=['POST'])
+@require('username', 'token', 'name')
+def CreateTag():
+    data = request.get_json()
+    u = User(username = data['username'], token = data['token'])
+    if u.valid:
+        tag = Tag()
+        return GetResp(tag.CreateTag(data))
+    else:
+        return GetResp((401, {"msg":"User not log in!"}))
+
+@app.route('/deletetag', methods=['POST'])
+@require('username', 'token', 'key')
+def DeleteTag():
+    data = request.get_json()
+    u = User(username = data['username'], token = data['token'])
+    if u.valid:
+        tag = Tag(key = data['key'])
+        if tag.valid:
+            return GetResp(tag.DeleteTag(data))
+        else:
+            return GetResp((400, {"msg":"Wrong tag!"}))
+    else:
+        return GetResp((401, {"msg":"Invalid user!"}))
+
+@app.route('/checktag', methods=['POST'])
+@require('key')
+def CheckTag():
+    data = request.get_json()
+    tag = Tag(key = data['key'])
+    if tag.valid:
+        return GetResp(tag.CheckTag())
+    else:
+        return GetResp((400, {"msg":"Wrong tag!"}))
 
 @app.route('/getavailabletags', methods=['POST'])
 def GetAvailabelTags():
