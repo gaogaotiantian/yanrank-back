@@ -299,10 +299,11 @@ class Image:
             db.session.commit()
             return 200, {"msg": "Success"}
         elif urlList != None:
+            public_ids = []
             for url in urlList:
                 im = ImageDb.query.filter_by(url = url, owner = username).first()
                 if im != None:
-                    public_ids = url.split('/')[-1].split('.')[0] 
+                    public_ids.append(url.split('/')[-1].split('.')[0]) 
                     db.session.delete(im)
             db.session.commit()
             ret = cloudinary.api.delete_resources(public_ids = public_ids)
