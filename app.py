@@ -40,6 +40,11 @@ CORS(app)
 db = SQLAlchemy(app)
 
 # ============================================================================
+#                            Table like data 
+# ============================================================================
+availableTags = ["UCSB", "Cornell", "明星", "素人", "学生", "测试"]
+
+# ============================================================================
 #                                 Decoreator
 # ============================================================================
 
@@ -237,7 +242,10 @@ class Image:
 
     def __setitem__(self, key, val):
         if self.data != None:
-            self.data.__setattr__(key, val)
+            if key == 'tags':
+                self.data.__setattr__(key, '\n'.join(val))
+            else:
+                self.data.__setattr__(key, val)
 
     def New(self, data):
         for url in data['urlList']:
@@ -252,14 +260,33 @@ class Image:
         db.session.commit()
         return 200, {"msg":"Success"}
 
-    def DeleteImage(self):
+    def DeleteImage(self, username = "", urlList=None):
         if self.valid:
             public_id = self['url'].split('/')[-1].split('.')[0]
             ret = cloudinary.api.delete_resources(public_ids = [public_id])
             db.session.delete(self.data)
             db.session.commit()
             return 200, {"msg": "Success"}
+        elif urlList != None:
+            for url in urlList:
+                im = ImageDb.query.filter_by(url = url, owner = username).first()
+                if im != None:
+                    public_ids = url.split('/')[-1].split('.')[0] 
+                    db.session.delete(im)
+            db.session.commit()
+            ret = cloudinary.api.delete_resources(public_ids = public_ids)
+            return 200, {"msg": "Success"}
         return 400, {"msg": "Image invalid"}
+
+    def EditImage(self, data):
+        if self.valid:
+            if self['owner'] == data['username']:
+                self['gender'] = data['gender']
+                self['tags'] = data['tags']
+                db.session.commit()
+                return 200, {"msg": "Success!"}
+            return 401, {"msg": "Invalid User!"}
+        return 400, {"msg": "Invalid image"}
 
     def GetImages(self, data):
         if data['gender'] == '':
@@ -431,16 +458,39 @@ def GetImages():
     im = Image()
     return GetResp(im.GetImages(data))
 
+@app.route('/cancelimage', methods=['POST'])
+@require('username', 'token', 'urlList')
+def CancelImage():
+    data = request.get_json()
+    u = User(username = data['username'], token = data['token'])
+    if u.valid:
+        im = Image()
+        return GetResp(im.DeleteImage(username = u['username'], urlList = data['urlList']))
+    else:
+        return GetResp(im.DeleteImage(username = '', urlList = data['urlList']))
+
+
 @app.route('/deleteimage', methods=['POST'])
-@require('username', 'token', 'url')
+@require('username', 'token', 'urlList')
 def DeleteImage():
     data = request.get_json()
     u = User(username = data['username'], token = data['token'])
     if u.valid:
-        im = Image(url = data['url'])
-        return GetResp(im.DeleteImage())
+        im = Image()
+        return GetResp(im.DeleteImage(username = u['username'], urlList = data['urlList']))
     else:
         return GetResp((401, {"msg": "User not valid"}))
+
+@app.route('/editimage', methods=['POST'])
+@require('username', 'token', 'url', 'gender', 'tags')
+def EditImage():
+    data = request.get_json()
+    u = User(username = data['username'], token = data['token'])
+    if u.valid:
+        im = Image(url = data['url'])
+        return GetResp(im.EditImage(data))
+    else:
+        return GetResp((401, {"msg":"User not log in!"}))
 
 @app.route('/getranking', methods=['POST'])
 @require('gender', 'tag', 'number')
@@ -456,6 +506,10 @@ def PickImage():
     im = Image()
     return GetResp(im.PickImage(data))
 
+@app.route('/getavailabletags', methods=['POST'])
+def GetAvailabelTags():
+    return GetResp((200, availableTags))
+
 @app.route('/signature', methods=['POST'])
 def Signature():
     if CLOUDINARY_API_SECRET != None:
@@ -464,6 +518,7 @@ def Signature():
             if pickOutKey in data:
                 data.pop(pickOutKey)
         s = '&'.join([str(t[0])+'='+str(t[1]) for t in sorted([(k, v) for k,v in data.items()])])
+        s = s.replace('=True', '=true')
         s += CLOUDINARY_API_SECRET
         resp = flask.jsonify({"signature": hashlib.sha1(s).hexdigest()})
         resp.status_code = 200
