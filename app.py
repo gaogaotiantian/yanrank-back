@@ -478,6 +478,19 @@ class Tag:
             return 200, {"name": self['name']}
         return 400, {"msg": "No such tag."}
 
+class Report:
+    def __init__(self):
+        self.data = None
+    
+    def CreateReport(self, data):
+        newReport = ReportDb (
+                url = data['url'],
+                type = data['type'],
+                note = data['note']
+        )
+        db.session.add(newReport)
+        db.session.commit()
+        return 200, {"msg": "Success"}
 # ============================================================================
 #                                 Server
 # ============================================================================
@@ -633,6 +646,13 @@ def CheckTag():
         return GetResp(tag.CheckTag())
     else:
         return GetResp((400, {"msg":"Wrong tag!"}))
+
+@app.route('/report', methods=['POST'])
+@require('url', 'type', 'note')
+def CreateReport():
+    data = request.get_json()
+    r = Report()
+    return GetResp(r.CreateReport(data))
 
 @app.route('/getavailabletags', methods=['POST'])
 def GetAvailabelTags():
