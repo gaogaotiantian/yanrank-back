@@ -549,7 +549,10 @@ def ValidUser():
 def UserInfo():
     data = request.get_json()
     u = User(username = data['username'], token = data['token'])
-    return GetResp(u.GetInfo(data))
+    if u.valid:
+        return GetResp(u.GetInfo(data))
+    else:
+        return GetResp((401, {"msg": "User not log in"}))
 
 @app.route('/addimage', methods=['POST'])
 @require("urlList", "owner", "gender", "tags")
