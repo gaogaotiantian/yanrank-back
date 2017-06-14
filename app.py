@@ -302,13 +302,14 @@ class Image:
             db.session.commit()
             return 200, {"msg": "Success"}
         elif urlList != None:
+            public_ids = []
             for url in urlList:
                 if username == "admin":
                     im = ImageDb.query.filter_by(url = url).first()
                 else:
                     im = ImageDb.query.filter_by(url = url, owner = username).first()
                 if im != None:
-                    public_ids = url.split('/')[-1].split('.')[0] 
+                    public_ids.append(url.split('/')[-1].split('.')[0]) 
                     db.session.delete(im)
             db.session.commit()
             ret = cloudinary.api.delete_resources(public_ids = public_ids)
@@ -484,6 +485,19 @@ class Tag:
             return 200, {"name": self['name']}
         return 400, {"msg": "No such tag."}
 
+class Report:
+    def __init__(self):
+        self.data = None
+    
+    def CreateReport(self, data):
+        newReport = ReportDb (
+                url = data['url'],
+                type = data['type'],
+                note = data['note']
+        )
+        db.session.add(newReport)
+        db.session.commit()
+        return 200, {"msg": "Success"}
 # ============================================================================
 #                                 Server
 # ============================================================================
@@ -541,7 +555,10 @@ def ValidUser():
 def UserInfo():
     data = request.get_json()
     u = User(username = data['username'], token = data['token'])
-    return GetResp(u.GetInfo(data))
+    if u.valid:
+        return GetResp(u.GetInfo(data))
+    else:
+        return GetResp((401, {"msg": "User not log in"}))
 
 @app.route('/addimage', methods=['POST'])
 @require("urlList", "owner", "gender", "tags")
@@ -639,6 +656,13 @@ def CheckTag():
         return GetResp(tag.CheckTag())
     else:
         return GetResp((400, {"msg":"Wrong tag!"}))
+
+@app.route('/report', methods=['POST'])
+@require('url', 'type', 'note')
+def CreateReport():
+    data = request.get_json()
+    r = Report()
+    return GetResp(r.CreateReport(data))
 
 @app.route('/getavailabletags', methods=['POST'])
 def GetAvailabelTags():
