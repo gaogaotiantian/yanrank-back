@@ -341,10 +341,11 @@ class Image:
     def GetRanking(self, data):
         q = ImageDb.query.filter(ImageDb.gender == data['gender'], ImageDb.tags.like('%'+data['tag']+'%')).order_by(ImageDb.rank.desc()).limit(data['number'])
         images = q.all()
-        urlList = []
-        for im in images:
-            urlList.append(im.url)
-        return 200, {"ranking":urlList}
+        imgList = []
+        for imdata in images:
+            im = Image(data = imdata)
+            imgList.append(im.GetInfo())
+        return 200, {"ranking":imgList}
 
     def GetInfo(self):
         if self.valid:
