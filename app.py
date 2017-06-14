@@ -226,7 +226,10 @@ class User:
             ret['point'] = self['good_judge']*100.0 / max(1, (self['bad_judge'] + self['good_judge']))
             ret['images'] = []
             ret['tags'] = []
-            q = ImageDb.query.filter_by(owner = self['username'])
+            if self['username'] == 'admin':
+                q = ImageDb.query
+            else:
+                q = ImageDb.query.filter_by(owner = self['username'])
             images = q.all()
             for im in images:
                 i = Image(data = im)
@@ -300,7 +303,10 @@ class Image:
             return 200, {"msg": "Success"}
         elif urlList != None:
             for url in urlList:
-                im = ImageDb.query.filter_by(url = url, owner = username).first()
+                if username == "admin":
+                    im = ImageDb.query.filter_by(url = url).first()
+                else:
+                    im = ImageDb.query.filter_by(url = url, owner = username).first()
                 if im != None:
                     public_ids = url.split('/')[-1].split('.')[0] 
                     db.session.delete(im)
@@ -311,7 +317,7 @@ class Image:
 
     def EditImage(self, data):
         if self.valid:
-            if self['owner'] == data['username']:
+            if self['owner'] == data['username'] or data['username'] == "admin":
                 self['gender'] = data['gender']
                 self['tags'] = data['tags']
                 db.session.commit()
