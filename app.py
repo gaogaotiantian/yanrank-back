@@ -277,6 +277,11 @@ class Image:
 
     def New(self, data):
         for url in data['urlList']:
+            # Before put into database, change the url to end with jpg, this
+            # feature is supported by cloudinary end
+            a = url.split('.')
+            a[-1] = "jpg"
+            url = '.'.join(a)
             newImage = ImageDb(
                     url = url,
                     owner = data['owner'],
