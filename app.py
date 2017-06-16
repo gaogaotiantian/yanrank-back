@@ -233,7 +233,14 @@ class User:
             images = q.all()
             for im in images:
                 i = Image(data = im)
-                ret['images'].append(i.GetInfo())
+                imInfo = i.GetInfo()
+                imInfo['reports'] = []
+                reports = ReportDb.query.filter_by(url = imInfo['url']).all()
+                if reports != None:
+                    for report in reports:
+                        r = Report(data = report)
+                        imInfo['reports'].append(r.GetInfo())
+                ret['images'].append(imInfo)
             q = TagDb.query.filter_by(owner = self['username'])
             tags = q.all()
             for tag in tags:
@@ -495,9 +502,22 @@ class Tag:
         return 400, {"msg": "No such tag."}
 
 class Report:
-    def __init__(self):
+    def __init__(self, data = None):
         self.data = None
+        self.valid = False
+        if data != None:
+            self.data = data
+            self.valid = True
     
+    def __getitem__(self, key):
+        if self.data == None:
+            return None
+        return self.data.__getattribute__(key)
+
+    def __setitem__(self, key, val):
+        if self.data != None:
+            self.data.__setattr__(key, val)
+
     def CreateReport(self, data):
         newReport = ReportDb (
                 url = data['url'],
@@ -507,6 +527,16 @@ class Report:
         db.session.add(newReport)
         db.session.commit()
         return 200, {"msg": "Success"}
+    
+    def GetInfo(self):
+        if self.valid:
+            ret = {}
+            ret['url'] = self['url']
+            ret['note'] = self['note']
+            ret['type'] = self['type']
+            return ret
+        return None
+
 # ============================================================================
 #                                 Server
 # ============================================================================
