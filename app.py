@@ -533,7 +533,7 @@ class Tag:
         if force == True:
             updateTags = TagDb.query.filter_by(private = False).all()
         else:
-            updateTags = TagDb.query.filter(TagDb.private == False, TagDb.last_update < time.time() - 3600)
+            updateTags = TagDb.query.filter(TagDb.private == False, TagDb.last_update < time.time() - 3600).all()
         for tag in updateTags:
             tagName = tag.name
             tagNum = ImageDb.query.filter(ImageDb.tag.like('%'+tagName+'%')).count()
