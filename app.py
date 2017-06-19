@@ -373,6 +373,7 @@ class Image:
             total = ImageDb.query.filter_by(gender = self['gender']).count()
             if self['rank_time'] < 10:
                 ret['rank'] = u'评估中'
+                ret['rank_percent'] = 0
             else:
                 ret['rank'] = self['rank']
                 ret['rank_percent'] = 100*betterThan/total
