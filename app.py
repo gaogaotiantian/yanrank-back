@@ -116,9 +116,12 @@ class ImageDb(db.Model):
 class TagDb(db.Model):
     __tablename__ = 'tags'
     id            = db.Column(db.Integer, primary_key = True)
+    private       = db.Column(db.Boolean, default=False)
     key           = db.Column(db.String(32))
     name          = db.Column(db.String(32), default="")
     owner         = db.Column(db.String(50))
+    images        = db.Column(db.Integer, default = 0)
+    last_update   = db.Column(db.Integer, default = 0)
 
 class ReportDb(db.Model):
     __tablename__ = 'reports'
@@ -470,19 +473,42 @@ class Tag:
             ret['key'] = self['key']
         return ret
 
-    def CreateTag(self, data):
+    def CreatePrivateTag(self, data):
         key = base64.urlsafe_b64encode(os.urandom(12))
         while TagDb.query.filter_by(key = key).first() != None:
             key = base64.urlsafe_b64encode(os.urandom(12))
 
         newTag = TagDb(
+                private = True,
                 key = key,
                 name = data['name'],
-                owner = data['username']
+                owner = data['username'],
+                last_update = time.time()
         )
         db.session.add(newTag)
         db.session.commit()
         return 200, {"key": key}
+
+    def CreatePublicTag(self, data):
+        if data['name'] == '':
+            return 409, {"msg": "Empty tag!"}
+        elif TagDb.query.filter_by(private = False, name = data['name']).first() == None:
+            key = base64.urlsafe_b64encode(os.urandom(12))
+            while TagDb.query.filter_by(key = key).first() != None:
+                key = base64.urlsafe_b64encode(os.urandom(12))
+
+            newTag = TagDb(
+                    private = False,
+                    key = key,
+                    name = data['name'],
+                    owner = "",
+                    last_update = time.time()
+            )
+            db.session.add(newTag)
+            db.session.commit()
+            return 200, {"msg": "Success"}
+        else:
+            return 409, {"msg": "The tag exists"}
 
     def DeleteTag(self, data):
         if self.valid == True:
@@ -501,6 +527,20 @@ class Tag:
         if self.valid == True:
             return 200, {"name": self['name']}
         return 400, {"msg": "No such tag."}
+
+    def GetAvailableTags(self, force = False):
+        #update part
+        if force == True:
+            updateTags = TagDb.query.filter_by(private = False).all()
+        else:
+            updateTags = TagDb.query.filter(TagDb.private == False, TagDb.last_update < time.time() - 3600)
+        for tag in updateTags:
+            tagName = tag.name
+            tagNum = ImageDb.query.filter(ImageDb.tag.like('%'+tagName+'%')).count()
+            tag.images = tagNum
+            db.session.commit()
+        allTagsData = TagDb.query.filter_by(private = False).order_by(TagDb.images.desc())
+        return [[tag.name, tag.images] for tag in allTagsData]
 
 class Report:
     def __init__(self, data = None):
@@ -550,7 +590,7 @@ def GetResp(t):
     return resp
 # ----------------------------------
 #              API 
-# ----------------------------------
+# ---------------------------------, default = 0-
 
 @app.route('/login', methods=['POST'])
 @require("username", "password", "remember")
@@ -662,16 +702,23 @@ def PickImage():
     im = Image()
     return GetResp(im.PickImage(data))
 
-@app.route('/createtag', methods=['POST'])
+@app.route('/createprivatetag', methods=['POST'])
 @require('username', 'token', 'name')
-def CreateTag():
+def CreatePrivateTag():
     data = request.get_json()
     u = User(username = data['username'], token = data['token'])
     if u.valid:
         tag = Tag()
-        return GetResp(tag.CreateTag(data))
+        return GetResp(tag.CreatePrivateTag(data))
     else:
         return GetResp((401, {"msg":"User not log in!"}))
+
+@app.route('/createpublictag', methods=['POST'])
+@require('name')
+def CreatePublicTag():
+    data = request.get_json()
+    tag = Tag()
+    return GetResp(tag.CreatePublicTag(data))
 
 @app.route('/deletetag', methods=['POST'])
 @require('username', 'token', 'key')
@@ -705,16 +752,9 @@ def CreateReport():
     return GetResp(r.CreateReport(data))
 
 @app.route('/getavailabletags', methods=['POST'])
-def GetAvailabelTags():
-    global lastTimeCheckTags
-    global availableTags
-    if lastTimeCheckTags < time.time() - 3600:
-        lastTimeCheckTags = time.time()
-        for tagData in availableTags:
-            num = ImageDb.query.filter(ImageDb.tags.like('%'+tagData[0]+'%')).count()
-            tagData[1] = num
-        availableTags.sort(key = lambda x:x[1], reverse = True)
-    return GetResp((200, availableTags))
+def GetAvailableTags():
+    t = Tag()
+    return GetResp((200, t.GetAvailableTags()))
 
 @app.route('/signature', methods=['POST'])
 def Signature():
