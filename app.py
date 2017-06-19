@@ -43,6 +43,7 @@ db = SQLAlchemy(app)
 #                            Table like data 
 # ============================================================================
 availableTags = ["UCSB", "Cornell", "明星", "素人", "学生"]
+lastTimeCheckTags = 0
 
 # ============================================================================
 #                                 Decoreator
@@ -705,6 +706,14 @@ def CreateReport():
 
 @app.route('/getavailabletags', methods=['POST'])
 def GetAvailabelTags():
+    if lastTimeCheckTags < time.time() - 3600:
+        lastTimeCheckTags = time.time()
+        tagData = []
+        for tag in availableTags:
+            num = ImageDb.query.filter(ImageDb.tag.like('%'+tag+'%')).count()
+            tagData.append([tag, num])
+        tagData.sort(key = lambda x:x[1], reverse = True)
+        availableTags = [t[0] for t in tagData]
     return GetResp((200, availableTags))
 
 @app.route('/signature', methods=['POST'])
