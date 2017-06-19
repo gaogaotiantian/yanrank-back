@@ -42,7 +42,7 @@ db = SQLAlchemy(app)
 # ============================================================================
 #                            Table like data 
 # ============================================================================
-availableTags = ["UCSB", "Cornell", "明星", "素人", "学生"]
+availableTags = [["UCSB", 0], ["Cornell", 0], ["明星", 0], ["素人", 0], ["学生", 0]]
 lastTimeCheckTags = 0
 
 # ============================================================================
@@ -706,14 +706,14 @@ def CreateReport():
 
 @app.route('/getavailabletags', methods=['POST'])
 def GetAvailabelTags():
+    global lastTimeCheckTags
+    global availableTags
     if lastTimeCheckTags < time.time() - 3600:
         lastTimeCheckTags = time.time()
-        tagData = []
-        for tag in availableTags:
-            num = ImageDb.query.filter(ImageDb.tag.like('%'+tag+'%')).count()
-            tagData.append([tag, num])
-        tagData.sort(key = lambda x:x[1], reverse = True)
-        availableTags = [t[0] for t in tagData]
+        for tagData in availableTags:
+            num = ImageDb.query.filter(ImageDb.tags.like('%'+tagData[0]+'%')).count()
+            tagData[1] = num
+        availableTags.sort(key = lambda x:x[1], reverse = True)
     return GetResp((200, availableTags))
 
 @app.route('/signature', methods=['POST'])
